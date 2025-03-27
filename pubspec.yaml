@@ -1,0 +1,29 @@
+name: music_show
+description: 一个基于 Flutter 的音乐乐谱播放器，支持 MusicXML、MXL 文件的渲染和 MP3 音频播放。
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  webview_flutter: ^4.7.0
+  audioplayers: ^5.2.1
+  path_provider: ^2.1.2
+  path: ^1.8.3
+  archive: ^3.4.10
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/html/
+    - assets/js/
+    - assets/audios/
+    - assets/examples/
