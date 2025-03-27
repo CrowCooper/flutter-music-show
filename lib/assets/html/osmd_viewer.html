@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>乐谱查看器</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background-color: white;
+        }
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 16px;
+            color: #666;
+            text-align: center;
+            display: none;
+        }
+        #error {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 16px;
+            color: #ff4444;
+            text-align: center;
+            display: none;
+            padding: 20px;
+            background-color: #ffeeee;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        #toolbar {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 8px;
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 8px;
+            border-radius: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .toolbar-button {
+            background-color: #f0f0f0;
+            border: none;
+            padding: 8px;
+            border-radius: 50%;
+            cursor: pointer;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            color: #333;
+            transition: all 0.2s;
+        }
+        .toolbar-button:hover {
+            background-color: #e0e0e0;
+        }
+        #osmdContainer {
+            flex: 1;
+            overflow: auto;
+        }
+    </style>
+</head>
+<body>
+    <div id="toolbar">
+        <button class="toolbar-button" onclick="zoomIn()">+</button>
+        <button class="toolbar-button" onclick="resetZoom()">=</button>
+        <button class="toolbar-button" onclick="zoomOut()">-</button>
+    </div>
+    <div id="loading">正在加载乐谱...</div>
+    <div id="error"></div>
+    <div id="osmdContainer"></div>
+    
+    <script src="../js/opensheetmusicdisplay.min.js"></script>
+    <script>
+        let osmd;
+        let currentZoom = 1.0;
+        const zoomStep = 0.1;
+        
+        // 初始化 OSMD
+        async function initOSMD() {
+            try {
+                osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("osmdContainer", {
+                    autoResize: true,
+                    drawTitle: true,
+                    drawSubtitle: true,
+                    drawComposer: true,
+                    drawLyricist: true,
+                    drawCredits: true,
+                    drawPartNames: true,
+                    drawMetronomeMarks: true,
+                    drawTimeSignatures: true,
+                    drawMeasureNumbers: true,
+                    drawLyrics: true,
+                    drawFingerings: true,
+                    drawHints: true,
+                    drawMode: "svg",
+                    disableCursor: false,
+                });
+                
+                // 设置默认缩放
+                osmd.zoom = currentZoom;
+                
+                // 通知 Flutter OSMD 已初始化
+                window.flutter_inappwebview?.callHandler('osmdInitialized');
+            } catch (e) {
+                showError('初始化 OSMD 失败: ' + e.toString());
+            }
+        }
+        
+        // 加载 MusicXML
+        async function loadMusicXML(xmlContent) {
+            try {
+                showLoading();
+                hideError();
+                
+                await osmd.load(xmlContent);
+                await osmd.render();
+                
+                hideLoading();
+                
+                // 通知 Flutter MusicXML 已加载
+                window.flutter_inappwebview?.callHandler('musicXmlLoaded');
+            } catch (e) {
+                hideLoading();
+                if (xmlContent.includes('MThd')) {
+                    showError('不支持的 MIDI 文件格式');
+                } else if (xmlContent.startsWith('PK')) {
+                    showError('不支持直接加载 MXL 文件，请先解压缩');
+                } else {
+                    showError('加载乐谱失败: ' + e.toString());
+                }
+            }
+        }
+        
+        // 更新光标位置
+        function updateCursorPosition(timestamp) {
+            try {
+                if (!osmd || !osmd.cursor) return;
+                
+                // 移动光标到指定位置
+                osmd.cursor.show();
+                osmd.cursor.reset();
+                
+                // 计算要移动的小节数
+                const totalMeasures = osmd.Sheet.SourceMeasures.length;
+                const targetMeasure = Math.floor(timestamp * totalMeasures / 10);
+                
+                // 移动光标
+                for (let i = 0; i < targetMeasure && osmd.cursor.Iterator.EndReached === false; i++) {
+                    osmd.cursor.next();
+                }
+                
+                // 确保光标可见
+                const cursorElement = document.querySelector(".cursor");
+                if (cursorElement) {
+                    cursorElement.scrollIntoView({
+                        behavior: "smooth",
+                        block: "center",
+                        inline: "center"
+                    });
+                }
+            } catch (e) {
+                console.error('更新光标位置失败:', e);
+            }
+        }
+        
+        // 缩放控制
+        function zoomIn() {
+            currentZoom = Math.min(currentZoom + zoomStep, 2.0);
+            applyZoom();
+        }
+        
+        function zoomOut() {
+            currentZoom = Math.max(currentZoom - zoomStep, 0.5);
+            applyZoom();
+        }
+        
+        function resetZoom() {
+            currentZoom = 1.0;
+            applyZoom();
+        }
+        
+        function applyZoom() {
+            if (osmd) {
+                osmd.zoom = currentZoom;
+                osmd.render();
+            }
+        }
+        
+        // 显示/隐藏加载提示
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+        }
+        
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+        
+        // 显示/隐藏错误信息
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+        
+        function hideError() {
+            document.getElementById('error').style.display = 'none';
+        }
+        
+        // 初始化
+        window.onload = initOSMD;
+    </script>
+</body>
+</html>
